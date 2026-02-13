@@ -1,0 +1,395 @@
+use std::sync::Arc;
+use winit::{window::Window};
+use wgpu::util::DeviceExt;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+impl Vertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 2] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
+        }
+    }
+}
+
+
+// // This needs to be implemented if the Vertext struct contains that do not implement the Pod and
+// // Zeroable traits.
+// unsafe impl bytemuck::Pod for Vertex {}
+// unsafe impl bytemuck::Zeroable for Vertex {}
+//
+
+const VERTICES: &[Vertex] = &[
+    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
+    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
+    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
+    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
+    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
+];
+
+const INDICES: &[u16] = &[
+    0, 1, 4,
+    1, 2, 4,
+    2, 3, 4,
+];
+
+use crate::GameLogic;
+// This will store the state of our game
+pub struct State<T: GameLogic> {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    color: wgpu::Color,
+    is_surface_configured: bool,
+    render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+    egui_ctx: egui::Context,
+    pub egui_state: egui_winit::State,
+    egui_renderer: egui_wgpu::Renderer,
+    pub game_logic: T,
+    pub window: Arc<Window>,
+}
+
+impl<T: GameLogic> State<T> {
+    // We don't need this to be async right now,
+    // but we will in the next tutorial
+    pub async fn new(window: Arc<Window>, game_logic: T) -> anyhow::Result<Self> {
+        let size = window.inner_size();
+        // The instance is a handle to our GPU
+        // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
+        });
+
+        let surface = instance.create_surface(window.clone()).unwrap();
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await?;
+
+        //let limits = adapter.limits();
+        //println!("Adapter limits: {:?}", limits);
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+                trace: wgpu::Trace::Off,
+            })
+            .await?;
+
+        let surface_caps = surface.get_capabilities(&adapter);
+
+        let modes = &surface_caps.present_modes;
+        println!("Supported present modes: {:?}", modes);
+
+        // Shader code in this tutorial assumes an sRGB surface texture. Using a different
+        // one will result in all the colors coming out darker. If you want to support non
+        // sRGB surfaces, you'll need to account for that when drawing to the frame.
+        let surface_format = surface_caps.formats.iter()
+            .find(|f| f.is_srgb())
+            .copied()
+            .unwrap_or(surface_caps.formats[0]);
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Mailbox, // Vsync
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        let diffuse_bytes = include_bytes!("../../../../ressources/happy-tree.png");
+        let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
+        let diffuse_rgba = diffuse_image.to_rgba8();
+
+        use image::GenericImageView;
+        let dimensions = diffuse_image.dimensions();
+
+        let texture_size = wgpu::Extent3d {
+            width: dimensions.0,
+            height: dimensions.1,
+            // All textures are stored as 3D, we represent our 2D texture
+            // by setting depth to 1.
+            depth_or_array_layers: 1,
+        };
+        let diffuse_texture = device.create_texture(
+            &wgpu::TextureDescriptor {
+                size: texture_size,
+                mip_level_count: 1, // We'll talk about this a little later
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                // Most images are stored using sRGB, so we need to reflect that here.
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                // TEXTURE_BINDING tells wgpu that we want to use this texture in shaders
+                // COPY_DST means that we want to copy data to this texture
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                label: Some("diffuse_texture"),
+                // This is the same as with the SurfaceConfig. It
+                // specifies what texture formats can be used to
+                // create TextureViews for this texture. The base
+                // texture format (Rgba8UnormSrgb in this case) is
+                // always supported. Note that using a different
+                // texture format is not supported on the WebGL2
+                // backend.
+                view_formats: &[],
+            }
+        );
+
+        queue.write_texture(
+            // Tells wgpu where to copy the pixel data
+            wgpu::TexelCopyTextureInfo {
+                texture: &diffuse_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            // The actual pixel data
+            &diffuse_rgba,
+            // The layout of the texture
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * dimensions.0),
+                rows_per_image: Some(dimensions.1),
+            },
+            texture_size,
+        );
+
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[], 
+        });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            multiview: None,
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"), 
+                buffers: &[
+                    Vertex::desc(), 
+                ], 
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState { 
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState { 
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList, 
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw, 
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: None, 
+            multisample: wgpu::MultisampleState {
+                count: 1, 
+                mask: !0, 
+                alpha_to_coverage_enabled: false,
+            },
+            cache: None, 
+        });
+
+        let color = wgpu::Color {
+            r: 0.3,
+            g: 0.2,
+            b: 0.1,
+            a: 1.0,
+        };
+
+        let vertex_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(VERTICES),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
+        let index_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(INDICES),
+                usage: wgpu::BufferUsages::INDEX,
+            }
+        );
+        let num_indices = INDICES.len() as u32;
+
+        let egui_ctx = egui::Context::default();
+        let egui_state = egui_winit::State::new(
+            egui_ctx.clone(),
+            egui::ViewportId::ROOT,
+            &window,
+            Some(window.scale_factor() as f32),
+            None,
+            Some(device.limits().max_texture_dimension_2d as usize), // The missing 6th argument
+        );
+        let egui_renderer = egui_wgpu::Renderer::new(
+            &device,
+            config.format,
+            egui_wgpu::RendererOptions::default(), // This replaces both the 'None' and the '1'
+        );
+        Ok(Self {
+            surface,
+            device,
+            queue,
+            config,
+            render_pipeline,
+            vertex_buffer,
+            index_buffer,
+            color,
+            is_surface_configured: false,
+            num_indices,
+            egui_ctx,
+            egui_state,
+            egui_renderer,
+            game_logic,
+            window,
+        })
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width > 0 && height > 0 {
+            self.config.width = width;
+            self.config.height = height;
+            self.surface.configure(&self.device, &self.config);
+            self.is_surface_configured = true;
+        }
+    }
+    
+    pub fn update(&mut self) {
+        self.game_logic.update();
+    }
+
+    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        // We can't render unless the surface is configured
+        if !self.is_surface_configured {
+        return Ok(());
+        }
+
+        let output = self.surface.get_current_texture()?;
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder"),
+        });
+
+        //EGUI INPUT & LOGIC
+        let raw_input = self.egui_state.take_egui_input(&self.window);
+        let full_output = self.egui_ctx.run(raw_input, |ctx| {
+            self.game_logic.draw_ui(ctx);
+        });
+
+        let paint_jobs = self.egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+        let screen_descriptor = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [self.config.width, self.config.height],
+            pixels_per_point: self.window.scale_factor() as f32,
+        };
+
+        // Upload font/ui textures to GPU
+        for (id, delta) in &full_output.textures_delta.set {
+            self.egui_renderer.update_texture(&self.device, &self.queue, *id, delta);
+        }
+        // Update vertex/index buffers for the UI
+        self.egui_renderer.update_buffers(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &paint_jobs,
+            &screen_descriptor,
+        );
+        
+        // Game rendering
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(self.color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+        }
+        // UI rendering 
+        {
+            let ui_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("UI Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load, // IMPORTANT: Load the game frame, don't clear!
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            let mut static_pass = ui_pass.forget_lifetime();
+            self.egui_renderer.render(&mut static_pass, &paint_jobs, &screen_descriptor);
+        }
+
+        // Cleanup freed textures
+        for id in &full_output.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
+
+        // submit will accept anything that implements IntoIter
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+        Ok(())
+        }
+    }
+
