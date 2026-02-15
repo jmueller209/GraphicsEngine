@@ -3,6 +3,7 @@
 members = [
     "crates/engine/app",
     "crates/engine/ui",
+    "crates/engine/textures",
     "crates/game",
 ]
 resolver = "2"
@@ -19,6 +20,7 @@ image = { version = "0.24", default-features = false, features = ["png", "jpeg"]
 egui = "0.33"
 egui-winit = "0.33"
 egui-wgpu = "0.33"
+glam = { version = "0.32", features = ["std"] }
 
 [package]
 name = "playground"

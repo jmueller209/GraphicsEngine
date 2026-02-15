@@ -589,12 +589,49 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "egui-winit",
+ "engine_camera",
+ "engine_gpu_types",
+ "engine_textures",
  "env_logger",
+ "glam",
  "image 0.24.9",
  "log",
  "pollster",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "engine_camera"
+version = "0.1.0"
+dependencies = [
+ "engine_gpu_types",
+ "glam",
+ "winit",
+]
+
+[[package]]
+name = "engine_gpu_types"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "glam",
+ "wgpu",
+]
+
+[[package]]
+name = "engine_textures"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "engine_gpu_types",
+ "env_logger",
+ "glam",
+ "image 0.24.9",
+ "log",
+ "pollster",
+ "wgpu",
 ]
 
 [[package]]
@@ -788,6 +825,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "engine_app",
+ "engine_camera",
  "env_logger",
  "image 0.24.9",
  "log",
@@ -828,6 +866,12 @@ dependencies = [
  "log",
  "xml-rs",
 ]
+
+[[package]]
+name = "glam"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34627c5158214743a374170fed714833fdf4e4b0cbcc1ea98417866a4c5d4441"
 
 [[package]]
 name = "glow"
