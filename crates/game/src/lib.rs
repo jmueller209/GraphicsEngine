@@ -1,6 +1,7 @@
 // game/src/lib.rs
 mod game;
 mod ui;
+mod systems;
 
 // Pull the Game struct into the current scope so you can just type 'Game'
 use crate::game::Game; 

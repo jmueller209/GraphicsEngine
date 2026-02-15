@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use winit::{window::Window};
+use winit::window::{Window, CursorGrabMode};
 use wgpu::util::DeviceExt;
 use glam::{Vec3, Quat};
 use engine_textures::{Texture, Instance};
@@ -183,7 +183,7 @@ impl<T: GameLogic> State<T> {
 
         // Camera setup
         let mut camera_uniform = CameraUniform::new();
-        game_logic.camera_mut().update_uniform(&mut camera_uniform);
+        camera_uniform.view_proj = game_logic.get_primary_camera_uniform();
 
         let camera_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
@@ -385,7 +385,7 @@ impl<T: GameLogic> State<T> {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
             self.is_surface_configured = true;
-            self.game_logic.camera_mut().set_aspect_ratio(width as f32 / height as f32);
+            self.game_logic.on_resize(width, height);
         }
     }
     
@@ -393,8 +393,11 @@ impl<T: GameLogic> State<T> {
         // update game logic
         self.game_logic.update();
 
+        self.sync_cursor_state();
+        
+
         // Update camera uniform
-        self.game_logic.camera_mut().update_uniform(&mut self.camera_uniform);
+        self.camera_uniform.view_proj = self.game_logic.get_primary_camera_uniform();
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
     }
 
@@ -488,6 +491,25 @@ impl<T: GameLogic> State<T> {
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
         Ok(())
+    }
+
+fn sync_cursor_state(&self) {
+    let visible = self.game_logic.is_cursor_visible();
+    
+    // 1. Sichtbarkeit
+    self.window.set_cursor_visible(visible);
+
+    // 2. Grab-Mode
+    if visible {
+        let _ = self.window.set_cursor_grab(winit::window::CursorGrabMode::None);
+    } else {
+        // Zuerst Locked versuchen (bestes Ergebnis für FPS)
+        if self.window.set_cursor_grab(winit::window::CursorGrabMode::Locked).is_err() {
+            // Falls das OS "Locked" ablehnt, versuchen wir "Confined"
+            let _ = self.window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
         }
     }
+}
+
+}
 

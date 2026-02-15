@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 engine_app = { path = "../engine/app" }
 engine_camera = { path = "../engine/camera" }
+engine_ecs = {path = "../engine/ecs" }
 
 wgpu.workspace = true
 winit.workspace = true
@@ -18,3 +19,7 @@ env_logger.workspace = true
 egui.workspace = true
 egui-winit.workspace = true
 egui-wgpu.workspace = true
+glam.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bevy_ecs.workspace = true

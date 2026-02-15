@@ -1,0 +1,22 @@
+{
+  "playing": {
+    "move_forward": "KeyW",
+    "move_backward": "KeyS",
+    "move_left": "KeyA",
+    "move_right": "KeyD",
+    "move_up": "Space",
+    "move_down": "ShiftLeft",
+    "toggle_pause": "Escape",
+    "interact": "KeyE"
+  },
+  "main_menu": {
+    "menu_up": "KeyW",
+    "menu_down": "KeyS",
+    "confirm": "Enter",
+    "back": "Escape"
+  },
+  "paused": {
+    "toggle_pause": "Escape",
+    "quit": "KeyQ"
+  }
+}

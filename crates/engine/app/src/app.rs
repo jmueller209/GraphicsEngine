@@ -24,6 +24,7 @@ impl<T: GameLogic> ApplicationHandler for App<T>{
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = Window::default_attributes();
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+        
         //println!("Event loop control flow: {:?}", event_loop.control_flow()); 
         if let Some(logic) = self.game_logic.take() {
              // Ensure State::new now accepts 'logic' as an argument
@@ -39,6 +40,19 @@ impl<T: GameLogic> ApplicationHandler for App<T>{
         }
     }
 
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        let state = match &mut self.state {
+            Some(canvas) => canvas,
+            None => return,
+        };
+        state.game_logic.on_device_input(&event);
+    }
+    
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -54,7 +68,7 @@ impl<T: GameLogic> ApplicationHandler for App<T>{
         let response = state.egui_state.on_window_event(&state.window, &event);
         
         // Pass the event and whether it was consumed by the UI to the game logic
-        state.game_logic.on_input(&event, response.consumed);
+        state.game_logic.on_window_input(&event, response.consumed);
         
         // If the UI consumed the event, we don't want to process it further
         if response.consumed {
