@@ -1,5 +1,6 @@
 pub mod state;
 pub mod app;
+pub mod ressources;
 
 pub trait GameLogic {
     fn update(&mut self);

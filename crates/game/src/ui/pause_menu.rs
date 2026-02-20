@@ -1,5 +1,5 @@
 use crate::game::Game;
-use egui::{Color32, RichText, Vec2, Rect, Pos2, Align2, FontId, Stroke};
+use egui::{Color32, RichText, Align2, FontId};
 
 pub fn draw(ui: &mut egui::Ui, game: &mut Game) {
     // --- 1. Abdunkelndes Overlay ---
@@ -45,7 +45,7 @@ pub fn draw(ui: &mut egui::Ui, game: &mut Game) {
         ui.add_space(30.0);
 
         // Wir nutzen den gleichen Button-Stil wie im Hauptmenü
-        let mut pause_button = |ui: &mut egui::Ui, text: &str| -> bool {
+        let pause_button = |ui: &mut egui::Ui, text: &str| -> bool {
             let btn = egui::Button::new(RichText::new(text).size(28.0).color(Color32::LIGHT_GRAY))
                 .frame(false);
             

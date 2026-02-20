@@ -1,5 +1,5 @@
 use engine_app::GameLogic;
-use engine_ecs::{ECSManager, FlyCameraBundle, ActionState, RawInputState, load_input_bindings, GameState, input_mapping_system, camera_matrix_system, fly_camera_controller_system, FrameContext, PrimaryCamera, CameraMatrices, CameraUniform, sync_camera_uniform_system, StateDefinition, CameraSettings};
+use engine_ecs::{ECSManager, FlyCameraBundle, ActionState, RawInputState, load_input_bindings, GameState, input_mapping_system, camera_matrix_system, fly_camera_controller_system, FrameContext, CameraUniform, sync_camera_uniform_system, StateDefinition, CameraSettings};
 use winit::event::{WindowEvent, ElementState};
 use winit::keyboard::{PhysicalKey};
 use crate::ui::{main_menu, hud, pause_menu, stats};
@@ -175,7 +175,7 @@ impl GameLogic for Game {
                 
                 match self.state() {
                     "main_menu" => main_menu::draw(ui, self),
-                    "playing"  => hud::draw(ui, self),
+                    "playing"  => hud::draw(ui),
                     "paused"   => pause_menu::draw(ui, self),
                     _ => {}
                 }

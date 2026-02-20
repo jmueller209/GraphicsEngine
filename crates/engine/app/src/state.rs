@@ -1,53 +1,10 @@
 use std::sync::Arc;
-use winit::window::{Window, CursorGrabMode};
+use winit::window::Window;
 use wgpu::util::DeviceExt;
 use glam::{Vec3, Quat};
-use engine_textures::{Texture, Instance};
+use engine_textures::{Texture, Instance, ModelVertex, DrawModel, Vertex, Model};
 use engine_gpu_types::{CameraUniform, InstanceRaw};
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    tex_coords: [f32; 2],
-}
-
-impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
-
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        use std::mem;
-
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &Self::ATTRIBS,
-        }
-    }
-}
-
-
-// // This needs to be implemented if the Vertext struct contains that do not implement the Pod and
-// // Zeroable traits.
-// unsafe impl bytemuck::Pod for Vertex {}
-// unsafe impl bytemuck::Zeroable for Vertex {}
-//
-
-const VERTICES: &[Vertex] = &[
-    // Changed
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], tex_coords: [0.4131759, 0.00759614], }, // A
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], tex_coords: [0.0048659444, 0.43041354], }, // B
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], tex_coords: [0.28081453, 0.949397], }, // C
-    Vertex { position: [0.35966998, -0.3473291, 0.0], tex_coords: [0.85967, 0.84732914], }, // D
-    Vertex { position: [0.44147372, 0.2347359, 0.0], tex_coords: [0.9414737, 0.2652641], }, // E
-];
-
-const INDICES: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
-];
+use crate::ressources::load_model;
 
 const NUM_INSTANCES_PER_ROW: u32 = 10;
 const INSTANCE_DISPLACEMENT: glam::Vec3 = glam::Vec3::new(NUM_INSTANCES_PER_ROW as f32 * 0.5, 0.0, NUM_INSTANCES_PER_ROW as f32 * 0.5);
@@ -62,15 +19,13 @@ pub struct State<T: GameLogic> {
     color: wgpu::Color,
     is_surface_configured: bool,
     render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
-    num_indices: u32,
     egui_ctx: egui::Context,
     pub egui_state: egui_winit::State,
     egui_renderer: egui_wgpu::Renderer,
     pub game_logic: T,
     diffuse_bind_group: wgpu::BindGroup,
-    diffuse_texture: Texture,
+    obj_model: Model,
+    depth_texture: Texture,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
@@ -82,7 +37,7 @@ pub struct State<T: GameLogic> {
 impl<T: GameLogic> State<T> {
     // We don't need this to be async right now,
     // but we will in the next tutorial
-    pub async fn new(window: Arc<Window>, mut game_logic: T) -> anyhow::Result<Self> {
+    pub async fn new(window: Arc<Window>, game_logic: T) -> anyhow::Result<Self> {
         let size = window.inner_size();
         // The instance is a handle to our GPU
         // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
@@ -181,6 +136,10 @@ impl<T: GameLogic> State<T> {
             }
         );
 
+        let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
+
+        let obj_model = load_model("cube.obj", &device, &queue, &texture_bind_group_layout).await.unwrap();
+
         // Camera setup
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.view_proj = game_logic.get_primary_camera_uniform();
@@ -220,22 +179,17 @@ impl<T: GameLogic> State<T> {
             label: Some("camera_bind_group"),
         });
 
+        const SPACE_BETWEEN: f32 = 3.0;
         let instances = (0..NUM_INSTANCES_PER_ROW).flat_map(|z| {
             (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                // 1. Convert loop indices to floats
-                let x_pos = x as f32;
-                let z_pos = z as f32;
+                let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+                let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
 
-                // 2. Create position and subtract displacement to center the grid
-                let position = Vec3::new(x_pos, 0.0, z_pos) - INSTANCE_DISPLACEMENT;
+                let position = Vec3::new(x, 0.0, z) - INSTANCE_DISPLACEMENT;
 
-                // 3. Calculate rotation based on the vector from the origin
                 let rotation = if position == Vec3::ZERO {
-                    // If at center, don't rotate (Identity)
                     Quat::IDENTITY
                 } else {
-                    // Normalize the position to get the "direction" from the center
-                    // Then rotate 45 degrees around that axis
                     let axis = position.normalize();
                     let angle = 45.0f32.to_radians();
                     Quat::from_axis_angle(axis, angle)
@@ -276,10 +230,7 @@ impl<T: GameLogic> State<T> {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"), 
-                buffers: &[
-                    Vertex::desc(), 
-                    InstanceRaw::desc(),
-                ], 
+                buffers: &[ModelVertex::desc(), InstanceRaw::desc()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState { 
@@ -304,7 +255,13 @@ impl<T: GameLogic> State<T> {
                 // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             },
-            depth_stencil: None, 
+            depth_stencil: Some(wgpu::DepthStencilState {
+                    format: Texture::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less, // 1.
+                    stencil: wgpu::StencilState::default(), // 2.
+                    bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1, 
                 mask: !0, 
@@ -319,23 +276,6 @@ impl<T: GameLogic> State<T> {
             b: 0.1,
             a: 1.0,
         };
-
-        let vertex_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(VERTICES),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
-
-        let index_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(INDICES),
-                usage: wgpu::BufferUsages::INDEX,
-            }
-        );
-        let num_indices = INDICES.len() as u32;
 
         let egui_ctx = egui::Context::default();
         let egui_state = egui_winit::State::new(
@@ -359,17 +299,15 @@ impl<T: GameLogic> State<T> {
             queue,
             config,
             render_pipeline,
-            vertex_buffer,
-            index_buffer,
             color,
             is_surface_configured: false,
-            num_indices,
             egui_ctx,
             egui_state,
             egui_renderer,
             game_logic,
             diffuse_bind_group,
-            diffuse_texture,
+            obj_model,
+            depth_texture,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
@@ -386,6 +324,7 @@ impl<T: GameLogic> State<T> {
             self.surface.configure(&self.device, &self.config);
             self.is_surface_configured = true;
             self.game_logic.on_resize(width, height);
+            self.depth_texture = Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
         }
     }
     
@@ -451,17 +390,22 @@ impl<T: GameLogic> State<T> {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
+            render_pass.set_pipeline(&self.render_pipeline);
+            let mesh = &self.obj_model.meshes[0];
+            let material = &self.obj_model.materials[mesh.material];
+            render_pass.draw_mesh_instanced(mesh, material, 0..self.instances.len() as u32, &self.camera_bind_group);
         }
         // UI rendering 
         {

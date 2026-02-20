@@ -24,6 +24,14 @@ glam = { version = "0.32", features = ["std"] }
 bevy_ecs = "0.18"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+fs_extra = "1.2"
+glob = "0.3"
+tobj = { version = "3.2", default-features = false, features = ["async"]}
+
+[build-dependencies]
+anyhow.workspace = true
+fs_extra.workspace = true
+glob.workspace = true
 
 [package]
 name = "playground"
@@ -39,6 +47,7 @@ game = { path = "crates/game" }
 # Inherit shared dependencies from the workspace
 anyhow.workspace = true
 winit.workspace = true
+glob.workspace = true
 env_logger.workspace = true
 pollster = "0.3" 
 
