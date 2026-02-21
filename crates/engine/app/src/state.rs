@@ -2,12 +2,23 @@ use std::sync::Arc;
 use winit::window::Window;
 use wgpu::util::DeviceExt;
 use glam::{Vec3, Quat};
-use engine_textures::{Texture, Instance, ModelVertex, DrawModel, Vertex, Model};
+use engine_textures::{Texture, Instance, ModelVertex, DrawModel, Vertex, Model, DrawLight};
 use engine_gpu_types::{CameraUniform, InstanceRaw};
 use crate::ressources::load_model;
 
 const NUM_INSTANCES_PER_ROW: u32 = 10;
-const INSTANCE_DISPLACEMENT: glam::Vec3 = glam::Vec3::new(NUM_INSTANCES_PER_ROW as f32 * 0.5, 0.0, NUM_INSTANCES_PER_ROW as f32 * 0.5);
+
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct LightUniform {
+    position: [f32; 3],
+    // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
+    _padding: u32,
+    color: [f32; 3],
+    // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
+    _padding2: u32,
+}
 
 use crate::GameLogic;
 // This will store the state of our game
@@ -23,9 +34,12 @@ pub struct State<T: GameLogic> {
     pub egui_state: egui_winit::State,
     egui_renderer: egui_wgpu::Renderer,
     pub game_logic: T,
-    diffuse_bind_group: wgpu::BindGroup,
     obj_model: Model,
     depth_texture: Texture,
+    light_uniform: LightUniform,
+    light_buffer: wgpu::Buffer,
+    light_bind_group: wgpu::BindGroup,
+    light_render_pipeline: wgpu::RenderPipeline,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
@@ -91,9 +105,6 @@ impl<T: GameLogic> State<T> {
             desired_maximum_frame_latency: 2,
         };
 
-        let diffuse_bytes = include_bytes!("../../../../ressources/happy-tree.png");
-        let diffuse_texture = Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
-
        let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -118,27 +129,49 @@ impl<T: GameLogic> State<T> {
                 ],
                 label: Some("texture_bind_group_layout"),
             });
+        
+        let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
+        let obj_model = load_model("cube.obj", &device, &queue, &texture_bind_group_layout).await.unwrap();
 
-        let diffuse_bind_group = device.create_bind_group(
-            &wgpu::BindGroupDescriptor {
-                layout: &texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&diffuse_texture.view), // CHANGED!
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler), // CHANGED!
-                    }
-                ],
-                label: Some("diffuse_bind_group"),
+        let light_uniform = LightUniform {
+            position: [2.0, 2.0, 2.0],
+            _padding: 0,
+            color: [1.0, 1.0, 1.0],
+            _padding2: 0,
+        };
+
+         // We'll want to update our lights position, so we use COPY_DST
+        let light_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Light VB"),
+                contents: bytemuck::cast_slice(&[light_uniform]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             }
         );
+        
+        let light_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: None,
+            });
 
-        let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
-
-        let obj_model = load_model("cube.obj", &device, &queue, &texture_bind_group_layout).await.unwrap();
+        let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &light_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: light_buffer.as_entire_binding(),
+            }],
+            label: None,
+        });
 
         // Camera setup
         let mut camera_uniform = CameraUniform::new();
@@ -185,7 +218,7 @@ impl<T: GameLogic> State<T> {
                 let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
                 let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
 
-                let position = Vec3::new(x, 0.0, z) - INSTANCE_DISPLACEMENT;
+                let position = Vec3::new(x, 0.0, z);
 
                 let rotation = if position == Vec3::ZERO {
                     Quat::IDENTITY
@@ -211,69 +244,56 @@ impl<T: GameLogic> State<T> {
             }
         );
                
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &texture_bind_group_layout,
                     &camera_bind_group_layout,
+                    &light_bind_group_layout,
                 ],
                 push_constant_ranges: &[], 
         });
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            multiview: None,
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"), 
-                buffers: &[ModelVertex::desc(), InstanceRaw::desc()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState { 
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState { 
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList, 
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw, 
-                cull_mode: Some(wgpu::Face::Back),
-                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-                polygon_mode: wgpu::PolygonMode::Fill,
-                // Requires Features::DEPTH_CLIP_CONTROL
-                unclipped_depth: false,
-                // Requires Features::CONSERVATIVE_RASTERIZATION
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                    format: Texture::DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less, // 1.
-                    stencil: wgpu::StencilState::default(), // 2.
-                    bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1, 
-                mask: !0, 
-                alpha_to_coverage_enabled: false,
-            },
-            cache: None, 
-        });
+        let render_pipeline = {
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Normal Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            };
+            Self::create_render_pipeline(
+                &device,
+                &render_pipeline_layout,
+                config.format,
+                Some(Texture::DEPTH_FORMAT),
+                &[ModelVertex::desc(), InstanceRaw::desc()],
+                shader,
+            )
+        };
+
+        let light_render_pipeline = {
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Light Pipeline Layout"),
+                bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Light Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
+            };
+            Self::create_render_pipeline(
+                &device,
+                &layout,
+                config.format,
+                Some(Texture::DEPTH_FORMAT),
+                &[ModelVertex::desc()],
+                shader,
+            )
+        };
 
         let color = wgpu::Color {
-            r: 0.3,
-            g: 0.2,
-            b: 0.1,
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
             a: 1.0,
         };
 
@@ -305,9 +325,12 @@ impl<T: GameLogic> State<T> {
             egui_state,
             egui_renderer,
             game_logic,
-            diffuse_bind_group,
             obj_model,
             depth_texture,
+            light_uniform,
+            light_buffer,
+            light_bind_group,
+            light_render_pipeline,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
@@ -331,13 +354,15 @@ impl<T: GameLogic> State<T> {
     pub fn update(&mut self) {
         // update game logic
         self.game_logic.update();
-
         self.sync_cursor_state();
-        
-
         // Update camera uniform
         self.camera_uniform.view_proj = self.game_logic.get_primary_camera_uniform();
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
+        // Update light uniform position
+        let old_position = Vec3::from_array(self.light_uniform.position);
+        let rotation = Quat::from_rotation_y(0.1_f32.to_radians());
+        self.light_uniform.position = (rotation * old_position).to_array();
+        self.queue.write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light_uniform]));
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -401,11 +426,21 @@ impl<T: GameLogic> State<T> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+                render_pass.set_pipeline(&self.light_render_pipeline);
+                render_pass.draw_light_model(
+                    &self.obj_model,
+                    &self.camera_bind_group,
+                    &self.light_bind_group,
+                ); 
             render_pass.set_pipeline(&self.render_pipeline);
-            let mesh = &self.obj_model.meshes[0];
-            let material = &self.obj_model.materials[mesh.material];
-            render_pass.draw_mesh_instanced(mesh, material, 0..self.instances.len() as u32, &self.camera_bind_group);
+            render_pass.draw_model_instanced(
+                &self.obj_model,
+                0..self.instances.len() as u32,
+                &self.camera_bind_group,
+                &self.light_bind_group,
+            );
         }
         // UI rendering 
         {
@@ -437,23 +472,85 @@ impl<T: GameLogic> State<T> {
         Ok(())
     }
 
-fn sync_cursor_state(&self) {
-    let visible = self.game_logic.is_cursor_visible();
     
-    // 1. Sichtbarkeit
-    self.window.set_cursor_visible(visible);
+    fn create_render_pipeline(
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        color_format: wgpu::TextureFormat,
+        depth_format: Option<wgpu::TextureFormat>,
+        vertex_layouts: &[wgpu::VertexBufferLayout],
+        shader: wgpu::ShaderModuleDescriptor,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(shader);
 
-    // 2. Grab-Mode
-    if visible {
-        let _ = self.window.set_cursor_grab(winit::window::CursorGrabMode::None);
-    } else {
-        // Zuerst Locked versuchen (bestes Ergebnis für FPS)
-        if self.window.set_cursor_grab(winit::window::CursorGrabMode::Locked).is_err() {
-            // Falls das OS "Locked" ablehnt, versuchen wir "Confined"
-            let _ = self.window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            multiview: None,
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: vertex_layouts,
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(wgpu::BlendState {
+                        alpha: wgpu::BlendComponent::REPLACE,
+                        color: wgpu::BlendComponent::REPLACE,
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
+                format,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            cache: None,
+        })
+    }
+
+    fn sync_cursor_state(&self) {
+        let visible = self.game_logic.is_cursor_visible();
+        
+        // 1. Sichtbarkeit
+        self.window.set_cursor_visible(visible);
+
+        // 2. Grab-Mode
+        if visible {
+            let _ = self.window.set_cursor_grab(winit::window::CursorGrabMode::None);
+        } else {
+            // Zuerst Locked versuchen (bestes Ergebnis für FPS)
+            if self.window.set_cursor_grab(winit::window::CursorGrabMode::Locked).is_err() {
+                // Falls das OS "Locked" ablehnt, versuchen wir "Confined"
+                let _ = self.window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
+            }
         }
     }
-}
 
 }
 

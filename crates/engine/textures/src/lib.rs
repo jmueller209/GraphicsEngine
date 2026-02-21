@@ -11,4 +11,5 @@ pub use model::Model;
 pub use model::Material;
 pub use model::Mesh;
 pub use model::DrawModel;
+pub use model::DrawLight;
 
