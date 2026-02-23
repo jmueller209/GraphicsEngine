@@ -854,6 +854,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "egui-winit",
+ "engine_assets",
  "engine_camera",
  "engine_gpu_types",
  "engine_textures",
@@ -865,6 +866,18 @@ dependencies = [
  "tobj",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "engine_assets"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "image 0.24.9",
+ "serde",
+ "serde_json",
+ "tobj",
+ "wgpu",
 ]
 
 [[package]]

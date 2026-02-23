@@ -4,7 +4,9 @@ use wgpu::util::DeviceExt;
 use glam::{Vec3, Quat};
 use engine_textures::{Texture, Instance, ModelVertex, DrawModel, Vertex, Model, DrawLight};
 use engine_gpu_types::{CameraUniform, InstanceRaw};
+use engine_assets::AssetManager;
 use crate::ressources::load_model;
+
 
 const NUM_INSTANCES_PER_ROW: u32 = 10;
 
@@ -121,8 +123,6 @@ impl<T: GameLogic> State<T> {
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
-                        // This should match the filterable field of the
-                        // corresponding Texture entry above.
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
