@@ -1,5 +1,6 @@
 use engine_app::GameLogic;
-use engine_ecs::{ECSManager, FlyCameraBundle, ActionState, RawInputState, load_input_bindings, GameState, input_mapping_system, camera_matrix_system, fly_camera_controller_system, FrameContext, CameraUniform, sync_camera_uniform_system, StateDefinition, CameraSettings};
+use engine_ecs::{ECSManager, FlyCameraBundle, Sprite3DBundle, ActionState, RawInputState, load_input_bindings, GameState, input_mapping_system, camera_matrix_system, fly_camera_controller_system, FrameContext, CameraUniform, sync_camera_uniform_system, StateDefinition, CameraSettings};
+use engine_assets::AssetManager;
 use winit::event::{WindowEvent, ElementState};
 use winit::keyboard::{PhysicalKey};
 use crate::ui::{main_menu, hud, pause_menu, stats};
@@ -76,11 +77,22 @@ impl Game {
 }
 
 impl GameLogic for Game {
+    fn init(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, asset_manager: &mut AssetManager) {
+        asset_manager.initialize_assets("../ressources/assets/asset_manifest.json", device, queue);
+
+        let cube = Sprite3DBundle::new(
+            "cube_mesh",
+            "cube_material",
+            glam::Vec3::new(0.0, 0.0, 0.0), 
+            asset_manager
+        );
+        self.ecs_manager.world.spawn(cube);
+    }
+
     fn on_device_input(&mut self, event: &winit::event::DeviceEvent) {
         let mut raw_input = self.ecs_manager.world.resource_mut::<RawInputState>();
 
         if let winit::event::DeviceEvent::Motion { axis, value } = event {
-            // axis 0 ist X (horizontal), axis 1 ist Y (vertikal)
             if *axis == 0 {
                 raw_input.mouse_delta.x += *value as f32;
             } else if *axis == 1 {
@@ -136,6 +148,10 @@ impl GameLogic for Game {
         }
     }
 
+    fn world(&mut self) -> &mut World {
+        &mut self.ecs_manager.world
+    }
+
     fn update(&mut self) {
         // Calculate Delta Time
         let now = std::time::Instant::now();
@@ -166,6 +182,7 @@ impl GameLogic for Game {
         }
     }
 
+
     fn draw_ui(&mut self, ctx: &egui::Context) {
         stats::draw(ctx, self);
 
@@ -181,12 +198,13 @@ impl GameLogic for Game {
                 }
             });
     }
-    fn get_primary_camera_uniform(&self) -> [[f32; 4]; 4] {
-            self.ecs_manager.world
-                .get_resource::<CameraUniform>()
-                .map(|b| b.camera_uniform)
-                .unwrap_or(glam::Mat4::IDENTITY.to_cols_array_2d())
-        }
+
+    fn get_primary_camera_uniform(&self) -> CameraUniform {
+        self.ecs_manager.world
+            .get_resource::<CameraUniform>()
+            .cloned()
+            .unwrap_or_else(|| CameraUniform::new())
+    }
 
     fn is_cursor_visible(&self) -> bool {
             self.ecs_manager.world

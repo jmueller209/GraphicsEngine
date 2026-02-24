@@ -1,0 +1,19 @@
+[package]
+name = "engine_render"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+engine_assets = { path = "../assets" }
+engine_ecs = { path = "../ecs" }
+engine_gpu_types = { path = "../gpu_types" }
+wgpu.workspace = true
+tobj.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+image.workspace = true
+bytemuck.workspace = true
+anyhow.workspace = true
+bevy_ecs.workspace = true
+
+

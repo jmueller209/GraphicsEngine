@@ -1,0 +1,26 @@
+{
+  "textures": {
+    "cube_diffuse": "textures/cube-diffuse.jpg",
+    "cube_normal": "normal_maps/cube-normal.png",
+    "happy_tree": "textures/happy-tree.png"
+  },
+  "meshes": {
+    "cube_mesh": "meshes/cube.obj"
+  },
+  "materials": {
+    "cube_material": {
+      "pipeline": "standard",
+      "diffuse": "cube_diffuse",
+      "normal": "cube_normal",
+      "roughness": 0.5,
+      "metallic": 0.1
+    },
+    "tree_material": {
+      "pipeline": "standard",
+      "diffuse": "happy_tree",
+      "normal": null,
+      "roughness": 0.9,
+      "metallic": 0.0
+    }
+  }
+}

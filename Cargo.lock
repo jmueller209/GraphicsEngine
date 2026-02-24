@@ -850,13 +850,16 @@ name = "engine_app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bevy_ecs",
  "bytemuck",
  "egui",
  "egui-wgpu",
  "egui-winit",
  "engine_assets",
  "engine_camera",
+ "engine_ecs",
  "engine_gpu_types",
+ "engine_render",
  "engine_textures",
  "env_logger",
  "glam 0.32.0",
@@ -894,6 +897,8 @@ name = "engine_ecs"
 version = "0.1.0"
 dependencies = [
  "bevy_ecs",
+ "bytemuck",
+ "engine_assets",
  "glam 0.32.0",
  "serde",
  "serde_json",
@@ -906,6 +911,23 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "glam 0.32.0",
+ "wgpu",
+]
+
+[[package]]
+name = "engine_render"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy_ecs",
+ "bytemuck",
+ "engine_assets",
+ "engine_ecs",
+ "engine_gpu_types",
+ "image 0.24.9",
+ "serde",
+ "serde_json",
+ "tobj",
  "wgpu",
 ]
 
@@ -1193,6 +1215,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "engine_app",
+ "engine_assets",
  "engine_camera",
  "engine_ecs",
  "env_logger",

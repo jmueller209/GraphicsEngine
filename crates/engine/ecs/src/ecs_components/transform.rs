@@ -1,11 +1,10 @@
 use bevy_ecs::prelude::*;
 
-// Transformation Component: position, rotation, scale
-#[derive(Component, Debug, Clone, Copy)] // Copy is nice for math structs
+#[derive(Component, Debug, Clone, Copy)]
 pub struct Transform {
     pub position: glam::Vec3,
     pub rotation: glam::Quat,
-    pub scale: glam::Vec3, // Scale is rarely used but essential for the Matrix
+    pub scale: glam::Vec3,
 }
 
 impl Transform {

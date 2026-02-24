@@ -10,8 +10,10 @@ pub use ecs_components::camera::*;
 pub use ecs_components::collider::*;
 pub use ecs_components::info::*;
 pub use ecs_components::transform::*;
+pub use ecs_components::assets::*;
 
 pub use ecs_bundles::fly_camera::FlyCameraBundle;
+pub use ecs_bundles::sprite3_d::Sprite3DBundle;
 
 pub use ecs_resources::input::*;
 pub use ecs_resources::game_state::*;

@@ -1,17 +1,11 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MeshHandle(pub u32);
+use engine_assets::data_structures::{MaterialId, MeshId};
+use bevy_ecs::prelude::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TextureHandle(pub u32);
+#[derive(Component, Debug, Clone, Copy)]
+pub struct MeshHandle(pub MeshId);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MaterialHandle(pub u32);
+#[derive(Component, Debug, Clone, Copy)]
+pub struct MaterialHandle(pub MaterialId);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PipelineHandle(pub u32);
+pub struct Invisible;
 
-
-pub struct MeshRenderer {
-    pub mesh: MeshHandle,
-    pub material: MaterialHandle, 
-}
