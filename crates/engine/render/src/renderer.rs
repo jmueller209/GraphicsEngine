@@ -1,30 +1,46 @@
 use bevy_ecs::prelude::*;
 use engine_assets::AssetManager;
 use engine_ecs::{MeshHandle, MaterialHandle, Transform};
-use wgpu::util::DeviceExt;
-use engine_ecs::CameraUniform;
+use engine_gpu_types::{CameraUniform, GlobalLightDataUniform, BindGroupLayout};
 
 pub struct Renderer{
     camera_buffer: wgpu::Buffer,
     pub camera_bind_group: wgpu::BindGroup,
     pub camera_bind_group_layout: wgpu::BindGroupLayout,
+
+    light_buffer: wgpu::Buffer,
+    light_bind_group: wgpu::BindGroup,
+    light_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl Renderer {
     pub fn new(device: &wgpu::Device) -> Self {
-        let camera_bind_group_layout = Self::create_camera_layout(device);
-        let (camera_buffer, camera_bind_group) = Self::create_camera_resources(device, &camera_bind_group_layout);
+        let camera_bind_group_layout = CameraUniform::bind_group_layout(device);
+        let (camera_buffer, camera_bind_group) = Self::create_uniform_resource::<CameraUniform>(device, &camera_bind_group_layout, "Camera");
+
+        let light_bind_group_layout = GlobalLightDataUniform::bind_group_layout(device);
+        let (light_buffer, light_bind_group) = Self::create_uniform_resource::<GlobalLightDataUniform>(device, &light_bind_group_layout, "Light");
         Self {
             camera_buffer,
             camera_bind_group,
             camera_bind_group_layout,
+
+            light_buffer,
+            light_bind_group,
+            light_bind_group_layout,
         }
 
     }
 
-    pub fn update_camera(&self, queue: &wgpu::Queue, camera_uniform: &CameraUniform) {
-        queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[*camera_uniform]));
-    }
+    pub fn update_global_uniforms(&self, queue: &wgpu::Queue, world: &World) {
+        if let Some(camera_data) = world.get_resource::<CameraUniform>() {
+            queue.write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(camera_data));
+        }
+
+        if let Some(light_data) = world.get_resource::<GlobalLightDataUniform>() {
+            queue.write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(light_data));
+        }
+    } 
 
     pub fn draw_world<'a>(
         &self,
@@ -42,51 +58,38 @@ impl Renderer {
 
             render_pass.set_pipeline(pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &material.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.light_bind_group, &[]);
+            render_pass.set_bind_group(2, &material.bind_group, &[]);
             render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
         }
     }
 
-    fn create_camera_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Camera Bind Group Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        })
-    }
-
-    /// Erstellt den tatsächlichen Speicher (Buffer) und die Verknüpfung (BindGroup)
-    fn create_camera_resources(
-        device: &wgpu::Device, 
-        layout: &wgpu::BindGroupLayout
+    fn create_uniform_resource<T>(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        label: &str,
     ) -> (wgpu::Buffer, wgpu::BindGroup) {
-        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Camera Uniform Buffer"),
-            size: std::mem::size_of::<CameraUniform>() as u64,
+        let size = std::mem::size_of::<T>() as u64;
+
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&format!("{} Buffer", label)),
+            size,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: camera_buffer.as_entire_binding(),
+                resource: buffer.as_entire_binding(),
             }],
-            label: Some("Camera Bind Group"),
+            label: Some(&format!("{} Bind Group", label)),
         });
 
-        (camera_buffer, camera_bind_group)
+        (buffer, bind_group)
     }
 
 

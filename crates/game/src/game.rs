@@ -1,21 +1,19 @@
 use engine_app::GameLogic;
-use engine_ecs::{ECSManager, FlyCameraBundle, Sprite3DBundle, ActionState, RawInputState, load_input_bindings, GameState, input_mapping_system, camera_matrix_system, fly_camera_controller_system, FrameContext, CameraUniform, sync_camera_uniform_system, StateDefinition, CameraSettings};
+use engine_ecs::{ECSManager, FlyCameraBundle, Sprite3DBundle, fly_camera_controller_system, GameStateConfig, FrameContext, GameState};
 use engine_assets::AssetManager;
-use winit::event::{WindowEvent, ElementState};
-use winit::keyboard::{PhysicalKey};
+use engine_gpu_types::CameraUniform;
+use winit::event::WindowEvent;
 use crate::ui::{main_menu, hud, pause_menu, stats};
-use crate::systems::switch_game_state_system;
 use bevy_ecs::prelude::*;
 
 
-
-pub const STATE_CONFIGS: &[StateDefinition] = &[
-    StateDefinition { name: "main_menu", cursor_visible: true },
-    StateDefinition { name: "playing",   cursor_visible: false },
-    StateDefinition { name: "paused",    cursor_visible: true },
+pub const STATE_CONFIG: &[GameStateConfig] = &[
+    GameStateConfig { name: "main_menu", cursor_visible: true },
+    GameStateConfig { name: "playing",   cursor_visible: false },
+    GameStateConfig { name: "paused",    cursor_visible: true },
 ];
 
-pub const INITIAL_GAME_STATE: &'static str = "main_menu";
+pub const INTIAL_STATE: &str = "main_menu";
 
 pub struct Game {
     pub ecs_manager : ECSManager,
@@ -25,36 +23,8 @@ pub struct Game {
 }
 
 impl Game {
-    // This is your dedicated constructor
     pub fn new() -> Self {
-        // Creating the Ecs-Manager
         let mut ecs_manager = ECSManager::new();
-       
-        // Loading keybindings from a config file
-        let keybindings = load_input_bindings("../ressources/keybindings/keybindings.json");
-        println!("Loaded Keybindings: {:?}", keybindings);
-
-        // Registering the keybinding ressources in the ECS
-        ecs_manager.world.insert_resource(keybindings);
-        ecs_manager.world.insert_resource(ActionState::default());
-        ecs_manager.world.insert_resource(RawInputState::default());
-        ecs_manager.world.insert_resource(GameState::new(STATE_CONFIGS, INITIAL_GAME_STATE));
-
-        // Camera Uniform ressource
-        ecs_manager.world.insert_resource(CameraUniform::default());
-        
-        // Spawning the camera entity with the FlyCameraBundle
-        let camera = FlyCameraBundle::new();
-        ecs_manager.world.spawn(camera);
-
-        ecs_manager.schedule.add_systems((
-            input_mapping_system, 
-            camera_matrix_system, 
-            fly_camera_controller_system,
-            sync_camera_uniform_system,
-            switch_game_state_system,
-        ).chain());
-
         Self {
             ecs_manager: ecs_manager,
             last_update: std::time::Instant::now(),
@@ -68,7 +38,6 @@ impl Game {
         &state_res.active_state
     }
 
-
     pub fn set_state(&mut self, new_state: &str) {
         let mut state_res = self.ecs_manager.world.resource_mut::<engine_ecs::GameState>();
         state_res.set_state(new_state);
@@ -79,73 +48,37 @@ impl Game {
 impl GameLogic for Game {
     fn init(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, asset_manager: &mut AssetManager) {
         asset_manager.initialize_assets("../ressources/assets/asset_manifest.json", device, queue);
+        self.ecs_manager.load_input_bindings("../ressources/keybindings/keybindings.json");
+        self.ecs_manager.set_game_state_config(STATE_CONFIG, INTIAL_STATE);
+        self.ecs_manager.set_ambient_light_color([1.0, 1.0, 1.0, 1.0]);
 
+        let camera = FlyCameraBundle::new();
         let cube = Sprite3DBundle::new(
             "cube_mesh",
             "cube_material",
             glam::Vec3::new(0.0, 0.0, 0.0), 
             asset_manager
         );
+
         self.ecs_manager.world.spawn(cube);
+        self.ecs_manager.world.spawn(camera);
+
+        self.ecs_manager.schedule.add_systems((
+            fly_camera_controller_system,
+        ));
+
     }
 
     fn on_device_input(&mut self, event: &winit::event::DeviceEvent) {
-        let mut raw_input = self.ecs_manager.world.resource_mut::<RawInputState>();
-
-        if let winit::event::DeviceEvent::Motion { axis, value } = event {
-            if *axis == 0 {
-                raw_input.mouse_delta.x += *value as f32;
-            } else if *axis == 1 {
-                raw_input.mouse_delta.y += *value as f32;
-            }
-        }
+        self.ecs_manager.on_device_input(event);
     }
 
     fn on_window_input(&mut self, event: &WindowEvent, ui_consumed: bool) {
-        if ui_consumed {
-            return;
-        }
-
-        let mut raw_input = self.ecs_manager.world.resource_mut::<RawInputState>();
-
-        match event {
-            // Keyboard-Events
-            WindowEvent::KeyboardInput {
-                event: key_event,
-                ..
-            } => {
-                if let PhysicalKey::Code(keycode) = key_event.physical_key {
-                    let is_pressed = key_event.state == ElementState::Pressed;
-                    
-                    if is_pressed {
-                        raw_input.pressed_keys.insert(keycode);
-                    } else {
-                        raw_input.pressed_keys.remove(&keycode);
-                    }
-                }
-            }
-
-            // Mouse-Button-Events
-            WindowEvent::MouseInput { state, button, .. } => {
-                let is_pressed = *state == ElementState::Pressed;
-                
-                if is_pressed {
-                    raw_input.mouse_buttons.insert(*button);
-                } else {
-                    raw_input.mouse_buttons.remove(button);
-                }
-            }
-
-            _ => {}
-        }
+        self.ecs_manager.on_window_input(event, ui_consumed);
     }
 
     fn on_resize(&mut self, width: u32, height: u32) {
-        let aspect_ratio = width as f32 / height as f32;
-        let mut query = self.ecs_manager.world.query::<&mut CameraSettings>();
-        for mut settings in query.iter_mut(&mut self.ecs_manager.world) {
-            settings.aspect_ratio = aspect_ratio;
-        }
+       self.ecs_manager.on_resize(width, height); 
     }
 
     fn world(&mut self) -> &mut World {
@@ -169,17 +102,7 @@ impl GameLogic for Game {
 
         self.ecs_manager.update(ctx);
 
-        // Zero out the mouse delta after processing to avoid accumulating it across frames
-        let mut raw_input = self.ecs_manager.world.resource_mut::<RawInputState>();
-        raw_input.mouse_delta = glam::Vec2::ZERO;
 
-        // Update previous values in action state
-        let mut action_state = self.ecs_manager.world.resource_mut::<ActionState>();
-        action_state.update_previous();
-
-        if !action_state.active_actions.is_empty() {
-            println!("Tick: {} | Actions: {:?}", self.tick_count, action_state.active_actions);
-        }
     }
 
 

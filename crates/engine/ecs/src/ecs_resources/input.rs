@@ -4,15 +4,60 @@ use winit::keyboard::KeyCode;
 use serde::Deserialize;
 use glam::Vec2;
 
-// This resource holds the mapping from action names to key codes for different game contexts
-// (e.g., "playing", "menu")
-#[derive(Resource, Default, Debug)]
+#[derive(Deserialize, Debug)]
+struct JsonConfig(HashMap<String, HashMap<String, String>>);
+
+#[derive(Resource, Debug)]
 pub struct InputBindings {
-    // context (e.g. "playing") -> map(action name -> key)
     pub bindings: HashMap<String, HashMap<String, KeyCode>>,
 }
 
-// This resource holds the current state of actions, i.e., which actions are active in the current context.
+impl InputBindings {
+    pub fn load_from_file(&mut self, path: &str) {
+        let file_content = std::fs::read_to_string(path)
+            .unwrap_or_else(|_| panic!("Could not find path {}", path));
+
+        let config: JsonConfig = serde_json::from_str(&file_content)
+            .expect("Error parsing JSON");
+
+        self.bindings.clear();
+
+        for (context, actions) in config.0 {
+            let mut context_map = HashMap::new();
+            for (action_name, key_string) in actions {
+                if let Some(key_code) = self.string_to_keycode(&key_string) {
+                    context_map.insert(action_name, key_code);
+                } else {
+                    eprintln!("Warning: Unknown key {} in action {}.", key_string, action_name);
+                }
+            }
+            self.bindings.insert(context, context_map);
+        }
+    }
+
+    fn string_to_keycode(&self, key_str: &str) -> Option<KeyCode> {
+        let json_string = format!("\"{}\"", key_str);
+        serde_json::from_str::<KeyCode>(&json_string).ok()
+    }
+}
+
+impl Default for InputBindings {
+    fn default() -> Self {
+        let mut bindings = HashMap::new();
+        let mut playing_map = HashMap::new();
+        playing_map.insert("move_forward".to_string(), KeyCode::KeyW);
+        playing_map.insert("move_backward".to_string(), KeyCode::KeyS);
+        playing_map.insert("move_left".to_string(), KeyCode::KeyA);
+        playing_map.insert("move_right".to_string(), KeyCode::KeyD);
+        playing_map.insert("move_up".to_string(), KeyCode::Space);
+        playing_map.insert("move_down".to_string(), KeyCode::ShiftLeft);
+        playing_map.insert("toggle_pause".to_string(), KeyCode::Escape);
+        playing_map.insert("interact".to_string(), KeyCode::KeyE);
+        bindings.insert("playing".to_string(), playing_map);
+        Self { bindings }
+    }
+}
+
 #[derive(Resource, Default, Debug)]
 pub struct ActionState {
     pub active_actions: HashSet<String>,
@@ -31,9 +76,6 @@ impl ActionState {
     }
 }
 
-// This recourse holds the raw input state, i.e., which keys are currently pressed. This is used to
-// determine the active actions based on the input bindings.
-
 #[derive(Resource, Default, Debug)]
 pub struct RawInputState {
     pub pressed_keys: HashSet<KeyCode>,
@@ -42,61 +84,7 @@ pub struct RawInputState {
 }
 
 impl RawInputState {
-    /// Important: This function must be called at the end of EVERY frame to prevent mouse movement
-    /// from accumulating.
-    pub fn reset_mouse(&mut self) {
+    pub fn reset_mouse_delta(&mut self) {
         self.mouse_delta = Vec2::ZERO;
     }
-}
-
-
-// Function for loading input bindings from a JSON file. The JSON should have the following
-// structure:
-// {
-//   "playing": {
-//     "jump": "Space",
-//     "move_left": "A",
-//     "move_right": "D"
-//     ...
-//   },
-//   "menu": {
-//     "select": "Enter",
-//     "back": "Escape"
-//     ...
-//   }
-//   others contexts...
-// }
-
-#[derive(Deserialize, Debug)]
-struct JsonConfig(HashMap<String, HashMap<String, String>>);
-
-pub fn load_input_bindings(path: &str) -> InputBindings {
-    let mut input_bindings = InputBindings::default();
-
-    let file_content = std::fs::read_to_string(path)
-        .expect("Konnte Key-Bindings Datei nicht finden");
-
-    let config: JsonConfig = serde_json::from_str(&file_content)
-        .expect("Fehler beim Parsen der JSON");
-
-    for (context, actions) in config.0 {
-        let mut context_map = HashMap::new();
-        
-        for (action_name, key_string) in actions {
-            if let Some(key_code) = string_to_keycode(&key_string) {
-                context_map.insert(action_name, key_code);
-            } else {
-                eprintln!("Warnung: Unbekannter Key '{}' in Aktion '{}'", key_string, action_name);
-            }
-        }
-        
-        input_bindings.bindings.insert(context, context_map);
-    }
-
-    input_bindings
-}
-
-fn string_to_keycode(key_str: &str) -> Option<KeyCode> {
-    let json_string = format!("\"{}\"", key_str);
-    serde_json::from_str::<KeyCode>(&json_string).ok()
 }

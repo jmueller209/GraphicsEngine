@@ -5,10 +5,12 @@ edition = "2024"
 
 [dependencies]
 engine_assets = { path = "../assets" }
+engine_gpu_types = { path = "../gpu_types" }
 bevy_ecs.workspace = true
 glam.workspace = true
 winit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 bytemuck.workspace = true
+puffin.workspace = true
 

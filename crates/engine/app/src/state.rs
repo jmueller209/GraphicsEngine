@@ -1,12 +1,8 @@
 use std::sync::Arc;
 use winit::window::Window;
-use wgpu::util::DeviceExt;
-use glam::{Vec3, Quat};
-use engine_textures::{Texture, Instance, ModelVertex, DrawModel, Vertex, Model, DrawLight};
-use engine_gpu_types::{CameraUniform, InstanceRaw};
+use engine_textures::Texture;
 use engine_assets::AssetManager;
 use engine_render::{PipelineBuilder, Renderer};
-use crate::ressources::load_model;
 
 
 use crate::GameLogic;
@@ -85,7 +81,7 @@ impl<T: GameLogic> State<T> {
         let renderer = Renderer::new(&device);
 
         let mut asset_manager = AssetManager::new(&device, &queue);
-        let standard_pipeline = PipelineBuilder::build_standard_pipeline(&device, &config, &renderer.camera_bind_group_layout);
+        let standard_pipeline = PipelineBuilder::build_standard_pipeline(&device, &config);
         asset_manager.pipeline_cache.insert("standard".to_string(), standard_pipeline);
 
 
@@ -135,21 +131,20 @@ impl<T: GameLogic> State<T> {
             self.depth_texture = Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
         }
     }
-    
-    pub fn update(&mut self) {
-        // update game logic
-        self.game_logic.update();
-        self.sync_cursor_state();
-        // Update camera
-        let camera_data = self.game_logic.get_primary_camera_uniform();
-        self.renderer.update_camera(&self.queue, &camera_data);
-    }
 
+    pub fn update(&mut self) {
+        self.game_logic.update();
+
+        self.renderer.update_global_uniforms(&self.queue, &self.game_logic.world());
+
+        self.sync_cursor_state();
+    }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         if !self.is_surface_configured {
             return Ok(());
         }
+        // puffin_egui::profiler_window(&self.egui_ctx);
 
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -209,7 +204,6 @@ impl<T: GameLogic> State<T> {
                 timestamp_writes: None,
             });
 
-            // Der neue saubere Aufruf über den Renderer
             self.renderer.draw_world(
                 &mut render_pass,
                 &mut self.game_logic.world(),
@@ -218,7 +212,7 @@ impl<T: GameLogic> State<T> {
         } 
 
         {
-            let mut ui_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let ui_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Egui UI Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,

@@ -2,8 +2,26 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use image::GenericImageView;
 use wgpu::util::DeviceExt;
-use crate::data_structures::{AssetManifest, MaterialConfig, MaterialData, MaterialUniforms, MeshBuffers, VertexPTN, MeshId, MaterialId, TextureId};
+use crate::data_structures::{MaterialData, MeshBuffers,  MeshId, MaterialId, TextureId};
+use engine_gpu_types::{VertexPTN, MaterialUniform};
+use serde::Deserialize;
 
+// Structs for deserializing the asset manifest JSON
+#[derive(Deserialize, Debug, Clone)]
+pub struct AssetManifest {
+    pub textures: HashMap<String, String>,
+    pub meshes: HashMap<String, String>,
+    pub materials: HashMap<String, MaterialConfig>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct MaterialConfig {
+    pub pipeline: String,
+    pub diffuse: String,
+    pub normal: Option<String>,
+    pub roughness: f32,
+    pub metallic: f32,
+}
 
 pub struct AssetManager {
     meshes: Vec<MeshBuffers>,
@@ -40,11 +58,11 @@ impl AssetManager {
     }
 
    pub fn get_mesh_id(&self, name: &str) -> MeshId {
-        *self.mesh_registry.get(name).expect(&format!("Mesh '{}' nicht geladen!", name))
+        *self.mesh_registry.get(name).expect(&format!("Mesh '{}' could not be loaded.", name))
     }
 
     pub fn get_material_id(&self, name: &str) -> MaterialId {
-        *self.material_registry.get(name).expect(&format!("Material '{}' nicht geladen!", name))
+        *self.material_registry.get(name).expect(&format!("Material '{}' could not be loaded.", name))
     }
 
     pub fn get_mesh(&self, id: MeshId) -> &MeshBuffers {
@@ -58,8 +76,8 @@ impl AssetManager {
     pub fn initialize_assets(&mut self, manifest_path: &str, device: &wgpu::Device, queue: &wgpu::Queue) {
         self.clear_assets();
 
-        let file_content = std::fs::read_to_string(manifest_path).expect("Manifest nicht gefunden");
-        let manifest: AssetManifest = serde_json::from_str(&file_content).expect("JSON Fehler");
+        let file_content = std::fs::read_to_string(manifest_path).expect("Manifest not found");
+        let manifest: AssetManifest = serde_json::from_str(&file_content).expect("JSON error");
         let base_path = Path::new(manifest_path).parent().unwrap_or(Path::new(""));
 
         for (name, rel_path) in &manifest.textures {
@@ -88,22 +106,22 @@ impl AssetManager {
 
     pub fn create_material(&mut self, name: &str, config: &MaterialConfig, device: &wgpu::Device) {
         let pipeline = self.pipeline_cache.get(&config.pipeline)
-            .expect(&format!("Pipeline '{}' fehlt!", config.pipeline));
+            .expect(&format!("Pipeline '{}' missing.", config.pipeline));
         
-        let layout = pipeline.get_bind_group_layout(1); 
+        let layout = pipeline.get_bind_group_layout(2); // Material bind group is at index 2
 
         let diffuse_id = self.texture_registry.get(&config.diffuse)
-            .expect(&format!("Diffuse Texture '{}' fehlt für Material '{}'", config.diffuse, name));
+            .expect(&format!("Diffuse Texture '{}' for material '{}' missing.", config.diffuse, name));
         let diffuse_view = &self.texture_views[diffuse_id.0];
 
         let normal_view = if let Some(normal_name) = &config.normal {
-            let n_id = self.texture_registry.get(normal_name).expect("Normal Map fehlt");
+            let n_id = self.texture_registry.get(normal_name).expect(&format!("Normal Texture '{}' for material '{}' missing.", normal_name, name));
             &self.texture_views[n_id.0]
         } else {
             &self.default_normal_view
         };
 
-        let uniforms = MaterialUniforms {
+        let uniforms = MaterialUniform {
             roughness: config.roughness,
             metallic: config.metallic,
             _padding: [0.0; 2],
@@ -136,7 +154,7 @@ impl AssetManager {
 
 
     fn load_texture_from_path(&self, path: PathBuf, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView {
-        let img = image::open(&path).expect("Bild-Ladefehler");
+        let img = image::open(&path).expect("Image could not be loaded");
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         
         let format = if file_name.contains("_n.") || file_name.contains("_data.") {

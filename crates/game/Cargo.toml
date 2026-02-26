@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 engine_app = { path = "../engine/app" }
-engine_camera = { path = "../engine/camera" }
 engine_ecs = {path = "../engine/ecs" }
 engine_assets = { path = "../engine/assets" }
+engine_gpu_types = { path = "../engine/gpu_types" }
 
 wgpu.workspace = true
 winit.workspace = true
@@ -24,3 +24,5 @@ glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 bevy_ecs.workspace = true
+puffin.workspace = true
+puffin_http.workspace = true

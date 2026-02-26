@@ -1,7 +1,7 @@
 use bevy_ecs::prelude::*;
 use std::collections::HashMap;
 
-pub struct StateDefinition {
+pub struct GameStateConfig {
     pub name: &'static str,
     pub cursor_visible: bool,
 }
@@ -12,17 +12,28 @@ pub struct GameState {
     cursor_lookup: HashMap<String, bool>,
 }
 
-impl GameState {
-    pub fn new(configs: &[StateDefinition], initial_state: &str) -> Self {
+impl Default for GameState {
+    fn default() -> Self {
         let mut cursor_lookup = HashMap::new();
-        
-        for config in configs {
-            cursor_lookup.insert(config.name.to_string(), config.cursor_visible);
-        }
-
+        cursor_lookup.insert("playing".to_string(), false);
         Self {
-            active_state: initial_state.to_string(),
+            active_state: "playing".to_string(),
             cursor_lookup,
+        }
+    }
+}
+
+impl GameState {
+    pub fn set_config(&mut self, configs: &[GameStateConfig], initial_state: &str) {
+        let mut new_lookup = HashMap::new();
+        for config in configs {
+            new_lookup.insert(config.name.to_string(), config.cursor_visible);
+        }
+        if new_lookup.contains_key(initial_state) {
+            self.cursor_lookup = new_lookup;
+            self.active_state = initial_state.to_string();
+        } else {
+            eprintln!("Warnung: Neuer Initial-State '{}' nicht in Config gefunden!", initial_state);
         }
     }
 
@@ -36,3 +47,5 @@ impl GameState {
         }
     }
 }
+
+

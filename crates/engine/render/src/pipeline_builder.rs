@@ -1,4 +1,4 @@
-use engine_assets::data_structures::{VertexPTN, BufferLayout};
+use engine_gpu_types::{MaterialUniform, VertexPTN, CameraUniform, GlobalLightDataUniform, BufferLayout, BindGroupLayout};
 
 pub struct PipelineBuilder;
 
@@ -6,16 +6,14 @@ impl PipelineBuilder {
     pub fn build_standard_pipeline(
         device: &wgpu::Device,
         surface_config: &wgpu::SurfaceConfiguration,
-        camera_layout: &wgpu::BindGroupLayout,
     ) -> wgpu::RenderPipeline {
         let shader = device.create_shader_module(wgpu::include_wgsl!("shaders/standard.wgsl"));
-
-        let material_layout = Self::create_material_layout(device);
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Standard Render Pipeline Layout"),
             bind_group_layouts: &[
-                camera_layout,
-                &material_layout,
+                &CameraUniform::bind_group_layout(device),
+                &GlobalLightDataUniform::bind_group_layout(device),
+                &MaterialUniform::bind_group_layout(device),
             ],
             push_constant_ranges: &[],
         });
@@ -30,7 +28,7 @@ impl PipelineBuilder {
                 entry_point: Some("vs_main"),
                 buffers: &[VertexPTN::buffer_layout()],
             },
-            
+
             fragment: Some(wgpu::FragmentState {
                 compilation_options: Default::default(),
                 module: &shader,
@@ -70,50 +68,4 @@ impl PipelineBuilder {
         })
     }
 
-    fn create_material_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
-                },
-                // Binding 1: Sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // Binding 2: Material Uniforms (Roughness, Metallic)
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                // Binding 3: Normal Map
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
-                },
-            ],
-            label: Some("Material Bind Group Layout"),
-        })
-    }
 }

@@ -12,6 +12,12 @@ pub fn run() -> anyhow::Result<()> {
     // Initialize the logger
     env_logger::init();
 
+    // Initialize the profiler
+    puffin::set_scopes_on(true);
+    let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
+    let _puffin_server = puffin_http::Server::new(&server_addr)
+        .expect("Failed to start puffin server");
+
     // Create the event loop
     let event_loop = EventLoop::with_user_event().build()?;
 

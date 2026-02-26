@@ -1,8 +1,7 @@
 pub mod state;
 pub mod app;
-pub mod ressources;
-use engine_ecs::CameraUniform;
 use engine_assets::AssetManager;
+use engine_gpu_types::CameraUniform;
 
 pub trait GameLogic {
     fn init(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, asset_manager: &mut AssetManager);

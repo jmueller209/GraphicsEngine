@@ -5,6 +5,7 @@ use crate::ecs_components::{Transform, CameraSettings, CameraMatrices};
 pub fn camera_matrix_system(
     mut query: Query<(&Transform, &CameraSettings, &mut CameraMatrices)>
 ) {
+    puffin::profile_function!();
     for (transform, settings, mut matrices) in &mut query {
 
         let forward = transform.rotation * glam::Vec3::NEG_Z;

@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 engine_textures = { path = "../textures" }
-engine_camera = { path = "../camera" }
 engine_gpu_types = { path = "../gpu_types" }
 engine_assets = { path = "../assets" }
 engine_render = { path = "../render" }
@@ -24,3 +23,4 @@ egui-winit.workspace = true
 egui-wgpu.workspace = true
 tobj.workspace = true
 bevy_ecs.workspace = true
+puffin.workspace = true

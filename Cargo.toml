@@ -17,6 +17,8 @@ wgpu = "27.0"
 pollster = "0.3"
 bytemuck = { version = "1.24", features = [ "derive" ] }
 image = { version = "0.24", default-features = false, features = ["png", "jpeg"] }
+puffin = "0.19" 
+puffin_http = "0.16"
 egui = "0.33"
 egui-winit = "0.33"
 egui-wgpu = "0.33"
@@ -27,6 +29,7 @@ serde_json = "1.0"
 fs_extra = "1.2"
 glob = "0.3"
 tobj = { version = "3.2", default-features = false, features = ["async"]}
+
 
 [build-dependencies]
 anyhow.workspace = true

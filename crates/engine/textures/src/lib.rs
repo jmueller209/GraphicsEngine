@@ -1,9 +1,6 @@
 pub mod texture;
 pub use texture::Texture;
 
-pub mod instance;
-pub use instance::Instance;
-
 pub mod model;
 pub use model::Vertex;
 pub use model::ModelVertex;

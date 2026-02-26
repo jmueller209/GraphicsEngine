@@ -10,6 +10,7 @@ pub fn fly_camera_controller_system(
     raw: Res<RawInputState>,
     mut query: Query<&mut Transform, With<FlyCamera>>,
 ) {
+    puffin::profile_function!();
     let move_speed = 10.0;
     let look_sensitivity = 0.002;
     let dt = ctx.dt;

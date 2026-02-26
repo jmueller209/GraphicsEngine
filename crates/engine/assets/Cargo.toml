@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+engine_gpu_types = { path = "../gpu_types" }
 wgpu.workspace = true
 tobj.workspace = true
 serde.workspace = true

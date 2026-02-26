@@ -24,10 +24,7 @@ impl<T: GameLogic> ApplicationHandler for App<T>{
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = Window::default_attributes();
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-        
-        //println!("Event loop control flow: {:?}", event_loop.control_flow()); 
         if let Some(logic) = self.game_logic.take() {
-             // Ensure State::new now accepts 'logic' as an argument
             let state = pollster::block_on(State::new(window, logic)).unwrap();
             self.state = Some(state);
         }
@@ -82,16 +79,26 @@ impl<T: GameLogic> ApplicationHandler for App<T>{
             }
             WindowEvent::Resized(size) => state.resize(size.width, size.height),
             WindowEvent::RedrawRequested => {
-                state.update();
-                match state.render() {
-                    Ok(_) => {}
-                    // Reconfigure the surface if it's lost or outdated
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        let size = state.window.inner_size();
-                        state.resize(size.width, size.height);
-                    }
-                    Err(e) => {
-                        log::error!("Unable to render {}", e);
+                puffin::GlobalProfiler::lock().new_frame();
+
+                puffin::profile_scope!("Redraw_Frame");
+
+                {
+                    puffin::profile_scope!("State_Update");
+                    state.update();
+                }
+                {
+                    puffin::profile_scope!("State_Render");
+                    match state.render() {
+                        Ok(_) => {}
+                        // Reconfigure the surface if it's lost or outdated
+                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                            let size = state.window.inner_size();
+                            state.resize(size.width, size.height);
+                        }
+                        Err(e) => {
+                            log::error!("Unable to render {}", e);
+                        }
                     }
                 }
             }
