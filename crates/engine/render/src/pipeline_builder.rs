@@ -1,4 +1,4 @@
-use engine_gpu_types::{MaterialUniform, VertexPTN, CameraUniform, GlobalLightDataUniform, BufferLayout, BindGroupLayout};
+use engine_gpu_types::{MaterialUniform, VertexPTN, CameraUniform, GlobalLightDataUniform, ModelMatrixUniform, BufferLayout, BindGroupLayout};
 
 pub struct PipelineBuilder;
 
@@ -14,6 +14,7 @@ impl PipelineBuilder {
                 &CameraUniform::bind_group_layout(device),
                 &GlobalLightDataUniform::bind_group_layout(device),
                 &MaterialUniform::bind_group_layout(device),
+                &ModelMatrixUniform::bind_group_layout(device),
             ],
             push_constant_ranges: &[],
         });

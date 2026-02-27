@@ -1,10 +1,13 @@
 use engine_app::GameLogic;
-use engine_ecs::{ECSManager, FlyCameraBundle, Sprite3DBundle, fly_camera_controller_system, GameStateConfig, FrameContext, GameState};
+use engine_ecs::{ECSManager, EngineSet, fly_camera_controller_system, GameStateConfig, FrameContext, GameState};
+use engine_ecs::ecs_bundles::{PointLightBundle, FlyCameraBundle, Sprite3DBundle};
+use engine_ecs::ecs_components::{PointLight};
 use engine_assets::AssetManager;
 use engine_gpu_types::CameraUniform;
 use winit::event::WindowEvent;
 use crate::ui::{main_menu, hud, pause_menu, stats};
 use bevy_ecs::prelude::*;
+use crate::systems::switch_game_state_system;
 
 
 pub const STATE_CONFIG: &[GameStateConfig] = &[
@@ -50,22 +53,47 @@ impl GameLogic for Game {
         asset_manager.initialize_assets("../ressources/assets/asset_manifest.json", device, queue);
         self.ecs_manager.load_input_bindings("../ressources/keybindings/keybindings.json");
         self.ecs_manager.set_game_state_config(STATE_CONFIG, INTIAL_STATE);
-        self.ecs_manager.set_ambient_light_color([1.0, 1.0, 1.0, 1.0]);
+        self.ecs_manager.set_ambient_light_color([0.1, 0.1, 0.1, 1.0]);
 
         let camera = FlyCameraBundle::new();
-        let cube = Sprite3DBundle::new(
-            "cube_mesh",
-            "cube_material",
-            glam::Vec3::new(0.0, 0.0, 0.0), 
-            asset_manager
-        );
 
-        self.ecs_manager.world.spawn(cube);
-        self.ecs_manager.world.spawn(camera);
+        for i in 0..10 {
+            for j in 0..10 {
+                let val_i = (i as f32 - 5.0) * 4.0;
+                let val_j = (j as f32 - 5.0) * 4.0;
+                
+                let cube = Sprite3DBundle::new(
+                    "cube_mesh",
+                    "cube_material",
+                    glam::Vec3::new(val_i, 0.0, val_j),
+                    asset_manager
+                );
+                self.ecs_manager.world.spawn(cube);
+            }
+        }
 
-        self.ecs_manager.schedule.add_systems((
-            fly_camera_controller_system,
+        let position = glam::Vec3::new(0.0, 5.0, 0.0);
+        self.ecs_manager.world.spawn((
+            Sprite3DBundle::new(
+                "internal:sphere", 
+                "internal:white", 
+                position, 
+                &asset_manager
+            ),
+            PointLight {
+                color: glam::Vec3::new(1.0, 1.0, 1.0),
+                intensity: 10.0,
+                range: 20.0,
+            }
         ));
+
+        self.ecs_manager.world.spawn(camera);
+        self.ecs_manager.schedule.add_systems(
+            (
+                fly_camera_controller_system,
+                switch_game_state_system,
+            ).in_set(EngineSet::Logic) 
+        );
 
     }
 

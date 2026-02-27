@@ -135,7 +135,7 @@ impl<T: GameLogic> State<T> {
     pub fn update(&mut self) {
         self.game_logic.update();
 
-        self.renderer.update_global_uniforms(&self.queue, &self.game_logic.world());
+        self.renderer.update_global_uniforms(&self.queue, self.game_logic.world());
 
         self.sync_cursor_state();
     }

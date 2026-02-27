@@ -18,6 +18,6 @@ pub fn switch_game_state_system(
                 println!("Game Resumed");
             }
         },
-        _ => {} 
+        _ => {},
     }
 }

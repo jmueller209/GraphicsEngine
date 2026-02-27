@@ -1,7 +1,7 @@
 use bevy_ecs::prelude::*;
 use crate::ecs_components::{CameraSettings};
 use crate::ecs_resources::{ActionState, RawInputState, InputBindings, GameState, GameStateConfig, FrameContext};
-use crate::ecs_systems::{input_mapping_system, camera_matrix_system, sync_camera_uniform_system, sync_lights_uniform_system};
+use crate::ecs_systems::{input_mapping_system, camera_matrix_system, sync_camera_uniform_system, sync_lights_uniform_system, input_clean_up_system};
 use engine_gpu_types::{CameraUniform, GlobalLightDataUniform};
 use winit::event::{WindowEvent, ElementState};
 use winit::keyboard::{PhysicalKey};
@@ -16,12 +16,19 @@ pub struct GameTime {
     pub delta_seconds: f32,
 }
 
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+pub enum EngineSet {
+    Input,
+    Logic,
+    Sync,
+    Cleanup,
+}
+
 impl ECSManager {
     pub fn new() -> Self {
         let mut world = World::new();
         let mut schedule = Schedule::default();
-
-        // Insert default resources
+        
         world.insert_resource(GameTime::default());
         world.insert_resource(ActionState::default());
         world.insert_resource(RawInputState::default());
@@ -30,13 +37,21 @@ impl ECSManager {
         world.insert_resource(GlobalLightDataUniform::default());
         world.insert_resource(GameState::default());
 
-        // Setup default systems in the schedule
+        schedule.configure_sets((
+            EngineSet::Input,
+            EngineSet::Logic,
+            EngineSet::Sync,
+            EngineSet::Cleanup,
+        ).chain());
+
         schedule.add_systems((
-            input_mapping_system, 
-            camera_matrix_system, 
-            sync_camera_uniform_system,
-            sync_lights_uniform_system,
+            input_mapping_system.in_set(EngineSet::Input),
+            camera_matrix_system.in_set(EngineSet::Sync),
+            sync_camera_uniform_system.in_set(EngineSet::Sync),
+            sync_lights_uniform_system.in_set(EngineSet::Sync),
+            input_clean_up_system.in_set(EngineSet::Cleanup),
         ));
+
         Self { world, schedule }
     }
 
@@ -58,18 +73,6 @@ impl ECSManager {
     pub fn update(&mut self, ctx: FrameContext) {
         self.world.insert_resource(ctx);
         self.schedule.run(&mut self.world);
-
-        // Zero out the mouse delta after processing to avoid accumulating it across frames
-        let mut raw_input = self.world.resource_mut::<RawInputState>();
-        raw_input.reset_mouse_delta();
-
-        // Update previous values in action state
-        let mut action_state = self.world.resource_mut::<ActionState>();
-        action_state.update_previous();
-
-        if !action_state.active_actions.is_empty() {
-            println!("Actions: {:?}", action_state.active_actions);
-        }
     }
 
     pub fn on_device_input(&mut self, event: &winit::event::DeviceEvent) {

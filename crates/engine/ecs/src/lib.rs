@@ -24,5 +24,6 @@ pub use ecs_systems::camera_matrix_system::*;
 pub use ecs_systems::fly_camera_controller_system::*;
 pub use ecs_systems::sync_camera_uniform_system::*;
 pub use ecs_systems::sync_lights_uniform_system::*;
+pub use ecs_systems::input_clean_up_system::*;
 
 

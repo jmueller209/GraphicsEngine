@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::f32::consts::PI;
 use std::path::{Path, PathBuf};
 use image::GenericImageView;
 use wgpu::util::DeviceExt;
@@ -73,8 +74,22 @@ impl AssetManager {
         &self.materials[id.0]
     }
 
+    fn load_internal_assets(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.create_cube_mesh("internal:cube", device);
+        self.create_sphere_mesh("internal:sphere", device, 0.5, 16, 32);
+        self.create_single_color_material(
+            "internal:white",
+            [255, 255, 255, 255],
+            0.5,
+            0.0,
+            device,
+            queue,
+        );
+    }
+
     pub fn initialize_assets(&mut self, manifest_path: &str, device: &wgpu::Device, queue: &wgpu::Queue) {
         self.clear_assets();
+        self.load_internal_assets(device, queue);
 
         let file_content = std::fs::read_to_string(manifest_path).expect("Manifest not found");
         let manifest: AssetManifest = serde_json::from_str(&file_content).expect("JSON error");
@@ -256,7 +271,13 @@ impl AssetManager {
         })
     }
 
-    fn create_default_normal_view(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView {
+    fn create_single_pixel_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        rgba: [u8; 4],
+        format: wgpu::TextureFormat,
+        label: &str,
+    ) -> wgpu::TextureView {
         let size = wgpu::Extent3d {
             width: 1,
             height: 1,
@@ -264,12 +285,12 @@ impl AssetManager {
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Default Normal Map"),
+            label: Some(label),
             size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -281,7 +302,7 @@ impl AssetManager {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &[128, 128, 255, 255],
+            &rgba,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4),
@@ -291,6 +312,180 @@ impl AssetManager {
         );
 
         texture.create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    fn create_default_normal_view(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView {
+        Self::create_single_pixel_texture(
+            device,
+            queue,
+            [128, 128, 255, 255], // Default normal pointing straight up
+            wgpu::TextureFormat::Rgba8Unorm,
+            "Default Normal Texture",
+        )
+    }
+
+    pub fn create_single_color_material(
+        &mut self,
+        material_name: &str,
+        rgba: [u8; 4],
+        roughness: f32,
+        metallic: f32,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        let tex_name = format!("{}_diffuse", material_name);
+
+        let view = Self::create_single_pixel_texture(
+            device, 
+            queue, 
+            rgba, 
+            wgpu::TextureFormat::Rgba8UnormSrgb, 
+            &tex_name
+        );
+        self.texture_registry.insert(tex_name.clone(), TextureId(self.texture_views.len()));
+        self.texture_views.push(view);
+
+        let config = MaterialConfig {
+            pipeline: "standard".to_string(),
+            diffuse: tex_name, 
+            normal: None,
+            roughness,
+            metallic,
+        };
+
+        self.create_material(material_name, &config, device);
+    }
+
+    pub fn create_cube_mesh(&mut self, mesh_name: &str, device: &wgpu::Device){
+        let vertices = vec![
+            // ================= FRONT FACE (+Z) =================
+            // Normal: [0.0, 0.0, 1.0]
+            VertexPTN { position: [-0.5, -0.5,  0.5], tex_coords: [0.0, 1.0], normal: [0.0, 0.0, 1.0] }, // Unten Links
+            VertexPTN { position: [ 0.5, -0.5,  0.5], tex_coords: [1.0, 1.0], normal: [0.0, 0.0, 1.0] }, // Unten Rechts
+            VertexPTN { position: [ 0.5,  0.5,  0.5], tex_coords: [1.0, 0.0], normal: [0.0, 0.0, 1.0] }, // Oben Rechts
+            VertexPTN { position: [-0.5,  0.5,  0.5], tex_coords: [0.0, 0.0], normal: [0.0, 0.0, 1.0] }, // Oben Links
+
+            // ================= BACK FACE (-Z) =================
+            // Normal: [0.0, 0.0, -1.0]
+            VertexPTN { position: [ 0.5, -0.5, -0.5], tex_coords: [0.0, 1.0], normal: [0.0, 0.0, -1.0] }, // Unten Links (von hinten betrachtet)
+            VertexPTN { position: [-0.5, -0.5, -0.5], tex_coords: [1.0, 1.0], normal: [0.0, 0.0, -1.0] }, // Unten Rechts
+            VertexPTN { position: [-0.5,  0.5, -0.5], tex_coords: [1.0, 0.0], normal: [0.0, 0.0, -1.0] }, // Oben Rechts
+            VertexPTN { position: [ 0.5,  0.5, -0.5], tex_coords: [0.0, 0.0], normal: [0.0, 0.0, -1.0] }, // Oben Links
+
+            // ================= TOP FACE (+Y) =================
+            // Normal: [0.0, 1.0, 0.0]
+            VertexPTN { position: [-0.5,  0.5,  0.5], tex_coords: [0.0, 1.0], normal: [0.0, 1.0, 0.0] }, // Unten Links (auf der Fläche stehend)
+            VertexPTN { position: [ 0.5,  0.5,  0.5], tex_coords: [1.0, 1.0], normal: [0.0, 1.0, 0.0] }, // Unten Rechts
+            VertexPTN { position: [ 0.5,  0.5, -0.5], tex_coords: [1.0, 0.0], normal: [0.0, 1.0, 0.0] }, // Oben Rechts
+            VertexPTN { position: [-0.5,  0.5, -0.5], tex_coords: [0.0, 0.0], normal: [0.0, 1.0, 0.0] }, // Oben Links
+
+            // ================= BOTTOM FACE (-Y) =================
+            // Normal: [0.0, -1.0, 0.0]
+            VertexPTN { position: [-0.5, -0.5, -0.5], tex_coords: [0.0, 1.0], normal: [0.0, -1.0, 0.0] }, 
+            VertexPTN { position: [ 0.5, -0.5, -0.5], tex_coords: [1.0, 1.0], normal: [0.0, -1.0, 0.0] }, 
+            VertexPTN { position: [ 0.5, -0.5,  0.5], tex_coords: [1.0, 0.0], normal: [0.0, -1.0, 0.0] }, 
+            VertexPTN { position: [-0.5, -0.5,  0.5], tex_coords: [0.0, 0.0], normal: [0.0, -1.0, 0.0] }, 
+
+            // ================= RIGHT FACE (+X) =================
+            // Normal: [1.0, 0.0, 0.0]
+            VertexPTN { position: [ 0.5, -0.5,  0.5], tex_coords: [0.0, 1.0], normal: [1.0, 0.0, 0.0] }, 
+            VertexPTN { position: [ 0.5, -0.5, -0.5], tex_coords: [1.0, 1.0], normal: [1.0, 0.0, 0.0] }, 
+            VertexPTN { position: [ 0.5,  0.5, -0.5], tex_coords: [1.0, 0.0], normal: [1.0, 0.0, 0.0] }, 
+            VertexPTN { position: [ 0.5,  0.5,  0.5], tex_coords: [0.0, 0.0], normal: [1.0, 0.0, 0.0] }, 
+
+            // ================= LEFT FACE (-X) =================
+            // Normal: [-1.0, 0.0, 0.0]
+            VertexPTN { position: [-0.5, -0.5, -0.5], tex_coords: [0.0, 1.0], normal: [-1.0, 0.0, 0.0] }, 
+            VertexPTN { position: [-0.5, -0.5,  0.5], tex_coords: [1.0, 1.0], normal: [-1.0, 0.0, 0.0] }, 
+            VertexPTN { position: [-0.5,  0.5,  0.5], tex_coords: [1.0, 0.0], normal: [-1.0, 0.0, 0.0] }, 
+            VertexPTN { position: [-0.5,  0.5, -0.5], tex_coords: [0.0, 0.0], normal: [-1.0, 0.0, 0.0] }, 
+        ];
+
+        let indices: Vec<u32> = vec![
+            0, 1, 2,  2, 3, 0,       // Front
+            4, 5, 6,  6, 7, 4,       // Back
+            8, 9, 10, 10, 11, 8,     // Top
+            12, 13, 14, 14, 15, 12,  // Bottom
+            16, 17, 18, 18, 19, 16,  // Right
+            20, 21, 22, 22, 23, 20,  // Left
+        ];
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Internal Cube Vertex Buffer"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Internal Cube Index Buffer"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        
+        let mesh = MeshBuffers { vertex_buffer, index_buffer, num_indices: indices.len() as u32 };
+        self.mesh_registry.insert(mesh_name.to_string(), MeshId(self.meshes.len()));
+        self.meshes.push(mesh);
+    }
+
+    pub fn create_sphere_mesh(&mut self, mesh_name : &str,  device: &wgpu::Device, radius: f32, lat_bands: u32, lon_bands: u32){
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        // 1. Vertices generieren (Breitengrade und Längengrade)
+        for lat in 0..=lat_bands {
+            let theta = (lat as f32 * PI) / lat_bands as f32;
+            let sin_theta = theta.sin();
+            let cos_theta = theta.cos();
+
+            for lon in 0..=lon_bands {
+                let phi = (lon as f32 * 2.0 * PI) / lon_bands as f32;
+                let sin_phi = phi.sin();
+                let cos_phi = phi.cos();
+
+                let nx = cos_phi * sin_theta;
+                let ny = cos_theta;
+                let nz = sin_phi * sin_theta;
+
+                let u = lon as f32 / lon_bands as f32;
+                let v = lat as f32 / lat_bands as f32;
+
+                vertices.push(VertexPTN {
+                    position: [nx * radius, ny * radius, nz * radius],
+                    tex_coords: [u, v],
+                    normal: [nx, ny, nz],
+                });
+            }
+        }
+
+        for lat in 0..lat_bands {
+            for lon in 0..lon_bands {
+                let first = lat * (lon_bands + 1) + lon;
+                let second = first + lon_bands + 1;
+                indices.push(first);
+                indices.push(first + 1);
+                indices.push(second);
+
+                indices.push(first + 1);
+                indices.push(second + 1);
+                indices.push(second);
+            }
+        }
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Internal Sphere Vertex Buffer"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Internal Sphere Index Buffer"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let mesh = MeshBuffers { vertex_buffer, index_buffer, num_indices: indices.len() as u32 };
+        self.mesh_registry.insert(mesh_name.to_string(), MeshId(self.meshes.len()));
+        self.meshes.push(mesh);
     }
 }
 

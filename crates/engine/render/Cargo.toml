@@ -15,5 +15,6 @@ image.workspace = true
 bytemuck.workspace = true
 anyhow.workspace = true
 bevy_ecs.workspace = true
+glam.workspace = true
 
 
